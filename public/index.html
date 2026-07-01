@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BambooFlow</title>
+  <link rel="manifest" href="/manifest.json">
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#0f1115; color:#e5e7eb; }
+    header { padding:14px 16px; border-bottom:1px solid #1f2937; display:flex; align-items:center; justify-content:space-between; }
+    main { padding:16px; }
+    .card { border:1px solid #1f2937; border-radius:12px; padding:14px; margin:10px 0; background:#111827; }
+    .btn { display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:10px; border:none; cursor:pointer; background:#4f46e5; color:white; font-weight:600; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    a { color:#93c5fd; }
+    textarea, input[type=text] { width:100%; background:#0b1220; color:#e5e7eb; border:1px solid #263044; border-radius:10px; padding:10px; }
+    textarea { min-height:140px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div style="font-weight:700;font-size:18px;">BambooFlow</div>
+      <div id="status" style="font-size:12px;color:#9ca3af;">连接中...</div>
+    </div>
+    <button class="btn" id="scanBtn">扫码连接</button>
+  </header>
+  <main>
+    <section class="card">
+      <div style="font-weight:700;">聊天室</div>
+      <div id="chat" style="margin-top:10px;min-height:120px;max-height:260px;overflow:auto;border-top:1px solid #1f2937;padding-top:10px;"></div>
+      <form id="chatForm" class="row" style="margin-top:10px;">
+        <input id="chatInput" type="text" placeholder="输入消息..." autocomplete="off">
+        <button class="btn" type="submit">发送</button>
+      </form>
+    </section>
+    <section class="card">
+      <div style="font-weight:700;">文件上传</div>
+      <form id="uploadForm" class="row" style="margin-top:10px;">
+        <input id="fileInput" type="file" style="color:#e5e7eb;">
+        <button class="btn" type="submit">上传</button>
+      </form>
+      <div id="uploadStatus" style="font-size:12px;color:#9ca3af;margin-top:8px;"></div>
+    </section>
+    <section class="card">
+      <div style="font-weight:700;">文件列表</div>
+      <div id="fileList" style="margin-top:10px;"></div>
+    </section>
+    <section class="card">
+      <div style="font-weight:700;">导出 / 导入对话</div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn" id="exportBtn">导出对话</button>
+        <label class="btn">导入对话<input id="importInput" type="file" accept="text/plain" style="display:none;"></label>
+      </div>
+      <textarea id="exportArea" placeholder="导出的对话会显示在这里..."></textarea>
+    </section>
+    <section class="card">
+      <div style="font-weight:700;">本机地址</div>
+      <div id="addr" style="font-size:13px;color:#c7d2fe;margin-top:6px;"></div>
+    </section>
+  </main>
+  <script>
+    const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+    const ws = new WebSocket(wsUrl);
+    const chat = document.getElementById('chat');
+    const status = document.getElementById('status');
+    const addr = document.getElementById('addr');
+    const chatForm = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
+    const uploadForm = document.getElementById('uploadForm');
+    const fileInput = document.getElementById('fileInput');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const fileList = document.getElementById('fileList');
+    const exportArea = document.getElementById('exportArea');
+    const exportBtn = document.getElementById('exportBtn');
+    const importInput = document.getElementById('importInput');
+    const scanBtn = document.getElementById('scanBtn');
+    function esc(s){return String(s).replace(/[&<>"']/g, (m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));}
+    function addChat(from, text, time){
+      const line = document.createElement('div');
+      line.innerHTML = '<b>' + esc(from) + '</b> <span style="color:#6b7280;font-size:12px;">' + esc(time) + '</span><div>' + esc(text) + '</div>';
+      chat.appendChild(line);
+      chat.scrollTop = chat.scrollHeight;
+    }
+    ws.addEventListener('open', () => { status.textContent = '已连接'; });
+    ws.addEventListener('close', () => { status.textContent = '已断开'; });
+    ws.addEventListener('error', () => { status.textContent = '连接错误'; });
+    ws.addEventListener('message', (ev) => {
+      const data = JSON.parse(ev.data);
+      if (data.type === 'text') addChat(data.from || '用户', data.content || '', new Date(data.timestamp || Date.now()).toLocaleTimeString());
+      if (data.type === 'file') addChat('系统', '文件已上传: ' + (data.file?.originalName || 'file'), new Date().toLocaleTimeString());
+      loadFiles();
+    });
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = chatInput.value.trim();
+      if (!text) return;
+      ws.send(JSON.stringify({ type: 'text', content: text }));
+      chatInput.value = '';
+    });
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const file = fileInput.files[0];
+      if (!file) return;
+      const form = new FormData();
+      form.append('file', file);
+      uploadStatus.textContent = '上传中...';
+      try {
+        const res = await fetch('/api/upload', { method:'POST', body: form });
+        const json = await res.json();
+        uploadStatus.textContent = json.success ? '上传成功' : '上传失败';
+      } catch (err) { uploadStatus.textContent = '上传失败: ' + err.message; }
+      fileInput.value = '';
+    });
+    async function loadFiles(){
+      try {
+        const res = await fetch('/api/files');
+        const json = await res.json();
+        fileList.innerHTML = '';
+        for (const f of json.files || []) {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding:8px 0;border-top:1px solid #1f2937;';
+          const a = document.createElement('a');
+          a.href = '/api/download/' + encodeURIComponent(f.filename);
+          a.download = f.filename;
+          a.textContent = f.filename + ' (' + (f.size/1024/1024).toFixed(2) + ' MB)';
+          div.appendChild(a);
+          fileList.appendChild(div);
+        }
+        if (!json.files.length) fileList.innerHTML = '<div style="color:#6b7280;">暂无文件</div>';
+      } catch (e) { fileList.innerHTML = '<div style="color:#ef4444;">加载失败</div>'; }
+    }
+    exportBtn.addEventListener('click', async () => {
+      exportArea.value = '正在导出...';
+      try {
+        const res = await fetch('/api/export-chat');
+        const text = await res.text();
+        exportArea.value = text || '没有可导出内容';
+      } catch (e) { exportArea.value = '导出失败: ' + e.message; }
+    });
+    importInput.addEventListener('change', async () => {
+      const file = importInput.files[0];
+      if (!file) return;
+      const text = await file.text();
+      try {
+        const res = await fetch('/api/import-chat', { method:'POST', headers:{'Content-Type':'text/plain'}, body: text });
+        const json = await res.json();
+        alert('已导入 ' + (json.imported || 0) + ' 条');
+      } catch (e) { alert('导入失败: ' + e.message); }
+      importInput.value = '';
+    });
+    scanBtn.addEventListener('click', () => {
+      const url = location.origin;
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url);
+      alert('已复制本机地址: ' + url);
+    });
+    addr.textContent = location.origin;
+    loadFiles();
+  </script>
+</body>
+</html>
