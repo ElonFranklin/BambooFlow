@@ -14,6 +14,56 @@ start the server, scan the QR code, connect devices on the same WiFi, then excha
 
 ---
 
+## Get Started in 1 Minute
+
+### 1. Install Node.js
+
+Download and install [Node.js 14+](https://nodejs.org/) (LTS recommended).
+
+### 2. Get the project
+
+**Option A — Git clone**
+
+```bash
+git clone https://github.com/ElonFranklin/BambooFlow.git
+cd BambooFlow
+```
+
+**Option B — Download ZIP**
+
+1. Open: https://github.com/ElonFranklin/BambooFlow
+2. Click **Code → Download ZIP**
+3. Unzip the folder
+4. Open a terminal in that folder
+
+### 3. Install and run
+
+```bash
+npm install
+npm start
+```
+
+**Windows one-click:**
+
+Double-click `start.bat`  
+(it will run `npm install` automatically if needed)
+
+### 4. Open the page
+
+```text
+http://localhost:3000
+```
+
+### 5. Connect another device
+
+1. Keep both devices on the **same WiFi**
+2. Open the local URL shown on the page, or scan the QR code
+3. Start anonymous chat and file transfer
+
+Done.
+
+---
+
 ## Features
 
 - **LAN Info Flow** — messages and files move together on the local network
@@ -26,39 +76,6 @@ start the server, scan the QR code, connect devices on the same WiFi, then excha
 - **Chat Export / Import** — export or import the current session chat
 - **PWA Ready** — add to phone home screen
 - **Lightweight** — single Node.js server, few dependencies
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) 14+ (LTS recommended)
-
-### Run
-
-```bash
-npm install
-npm start
-```
-
-On Windows, you can also double-click:
-
-```text
-start.bat
-```
-
-Then open:
-
-```text
-http://localhost:3000
-```
-
-### Connect another device
-
-1. Keep both devices on the **same WiFi**
-2. Open the local URL shown on the page, or scan the QR code
-3. Start anonymous chat and file transfer
 
 ---
 
@@ -95,6 +112,30 @@ Design rules:
 - Network scope: same LAN / same WiFi
 
 > For larger transfers, a cable, USB drive, or OS file share is usually a better fit.
+
+---
+
+## Troubleshooting
+
+### `npm` / `node` not found
+Install Node.js first, then reopen the terminal.
+
+### Port 3000 already in use
+Stop the other program using port 3000, or change the port in `server.js`:
+
+```js
+const PORT = 3000;
+```
+
+### Phone cannot open the page
+- Confirm both devices are on the **same WiFi**
+- Use the LAN URL shown on the page, not only `localhost`
+- Disable guest-network isolation if your router separates devices
+
+### Upload fails
+- Check free disk space
+- Keep the file under **8GB**
+- Keep the server window open while transferring
 
 ---
 
