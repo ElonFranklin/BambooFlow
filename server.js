@@ -16,8 +16,9 @@ const wss = new WebSocket.Server({ server });
 const PORT = 3000;
 const SERVER_HOST = '0.0.0.0';
 const CONFIG_FILE = path.join(__dirname, 'config.json');
-const MAX_FILE_SIZE = 1000 * 1024 * 1024; // 1000MB
+const MAX_FILE_SIZE = 8 * 1024 * 1024 * 1024; // 8GB
 const WS_HEARTBEAT_INTERVAL_MS = 30000;
+const MAX_CHAT_MESSAGES = 1000;
 
 function normalizeUploadDir(uploadDir) {
   if (typeof uploadDir !== 'string') {
@@ -57,19 +58,53 @@ function ensureUploadDir() {
   }
 }
 
+function cleanUploadDir() {
+  try {
+    ensureUploadDir();
+    const entries = fs.readdirSync(UPLOAD_DIR);
+    for (const name of entries) {
+      const target = path.join(UPLOAD_DIR, name);
+      try {
+        fs.rmSync(target, { recursive: true, force: true });
+      } catch (cleanError) {
+        console.error('[UploadDir] cleanup failed:', target, cleanError.message);
+      }
+    }
+    console.log('[UploadDir] cleaned on startup');
+  } catch (error) {
+    console.error('[UploadDir] cleanup error:', error.message);
+  }
+}
+
+// Session-scoped temp storage: keep files while the service is running,
+// clear leftover files when the service restarts.
+cleanUploadDir();
 ensureUploadDir();
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+function safeUploadBasename(name) {
+  const base = String(name || '').replace(/\\/g, '/').split('/').pop().trim();
+  const slug = base
+    .normalize('NFKD')
+    .replace(/[^\w\s\.\-（）()\u4e00-\u9fa5]/g, '');
+  const trimmed = slug.replace(/\s+/g, '').slice(0, 80) || 'file';
+  return trimmed || 'file';
+}
+
 const multerStorage = multer.diskStorage({
   destination: (req, file, cb) => {
+    ensureUploadDir();
     cb(null, UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${uniqueSuffix}-${file.originalname}`);
+    const safeName = safeUploadBasename(file.originalname);
+    const ext = path.extname(safeName);
+    const stem = path.basename(safeName, ext) || 'file';
+    cb(null, `${uniqueSuffix}-${stem}${ext || ''}`);
   }
 });
 
@@ -117,6 +152,14 @@ function getLocalIP() {
 }
 
 const clients = new Map();
+const chatMessages = [];
+
+function rememberChatMessage(message) {
+  chatMessages.push(message);
+  if (chatMessages.length > MAX_CHAT_MESSAGES) {
+    chatMessages.splice(0, chatMessages.length - MAX_CHAT_MESSAGES);
+  }
+}
 
 function broadcast(data, excludeWs = null) {
   const message = JSON.stringify(data);
@@ -155,7 +198,15 @@ wss.on('connection', (ws) => {
         if (!content) {
           return;
         }
-        broadcast({ type: 'text', content, from: clientId, timestamp: Date.now() }, ws);
+        const chatMessage = {
+          type: 'text',
+          content,
+          from: clientId,
+          timestamp: Date.now()
+        };
+        rememberChatMessage(chatMessage);
+        // Include sender so everyone (including self) sees the message.
+        broadcast(chatMessage);
       }
       if (data.type === 'pong') {
         ws.isAlive = true;
@@ -212,7 +263,6 @@ app.post('/api/upload', (req, res, next) => {
     filename: req.file.filename,
     originalName: req.file.originalname,
     size: req.file.size,
-    path: req.file.path,
     timestamp: Date.now()
   };
 
@@ -227,6 +277,7 @@ app.post('/api/upload', (req, res, next) => {
 });
 
 app.get('/api/files', (req, res) => {
+  ensureUploadDir();
   fs.readdir(UPLOAD_DIR, (err, files) => {
     if (err) {
       return res.json({ files: [] });
@@ -254,6 +305,51 @@ app.get('/api/files', (req, res) => {
 
     return res.json({ files: fileInfos });
   });
+});
+
+app.post('/api/cleanup', (req, res) => {
+  cleanUploadDir();
+  broadcast({ type: 'files-cleared' });
+  return res.json({ success: true });
+});
+
+app.get('/api/export-chat', (req, res) => {
+  const lines = chatMessages.map((message) => {
+    const time = new Date(message.timestamp || Date.now()).toISOString();
+    const from = message.from || 'unknown';
+    const content = String(message.content || '').replace(/\r?\n/g, '\\n');
+    return `[${time}] ${from}: ${content}`;
+  });
+
+  res.type('text/plain; charset=utf-8').send(lines.join('\n'));
+});
+
+app.post('/api/import-chat', express.text({ type: '*/*', limit: '2mb' }), (req, res) => {
+  const text = typeof req.body === 'string' ? req.body : '';
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let imported = 0;
+
+  for (const line of lines) {
+    const match = line.match(/^\[(.+?)\]\s+([^:]+):\s*(.*)$/);
+    const timestamp = match ? Date.parse(match[1]) : Date.now();
+    const from = match ? match[2].trim() : 'imported';
+    const content = (match ? match[3] : line).replace(/\\n/g, '\n').trim();
+
+    if (!content) {
+      continue;
+    }
+
+    rememberChatMessage({
+      type: 'text',
+      content,
+      from: from || 'imported',
+      timestamp: Number.isNaN(timestamp) ? Date.now() : timestamp
+    });
+    imported += 1;
+  }
+
+  broadcast({ type: 'chat-imported', imported });
+  res.json({ success: true, imported });
 });
 
 app.get('/api/download/:filename', (req, res) => {
@@ -342,7 +438,7 @@ app.use((err, req, res, next) => {
   return next();
 });
 
-server.requestTimeout = 30 * 60 * 1000;
+server.requestTimeout = 60 * 60 * 1000;
 
 server.listen(PORT, SERVER_HOST, () => {
   const localIP = getLocalIP();

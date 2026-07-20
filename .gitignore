@@ -3,3 +3,4 @@ uploads/
 server.log
 config.json
 *.bak
+*.log

@@ -1,12 +1,19 @@
 {
   "name": "bambooflow",
   "version": "1.0.0",
-  "description": "局域网文件传输工具 - 手机和电脑互传文件/文字",
+  "description": "Same WiFi, same flow — LAN info flow and anonymous chat without internet",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "keywords": ["file-transfer", "local-network", "websocket"],
+  "keywords": [
+    "lan",
+    "info-flow",
+    "anonymous-chat",
+    "file-transfer",
+    "websocket",
+    "local-network"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
