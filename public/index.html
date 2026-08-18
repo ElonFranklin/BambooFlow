@@ -17,6 +17,8 @@
     a { color:#93c5fd; }
     textarea, input[type=text] { width:100%; background:#0b1220; color:#e5e7eb; border:1px solid #263044; border-radius:10px; padding:10px; }
     textarea { min-height:140px; }
+    #chatInput { flex:1; min-height:46px; max-height:180px; resize:vertical; line-height:1.5; }
+    #chat .msg-body { white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; }
     #qrBox { display:none; margin-top:10px; }
     #qrBox img { width:180px; height:180px; border-radius:10px; background:white; padding:8px; }
   </style>
@@ -33,8 +35,8 @@
     <section class="card">
       <div style="font-weight:700;">聊天室</div>
       <div id="chat" style="margin-top:10px;min-height:120px;max-height:260px;overflow:auto;border-top:1px solid #1f2937;padding-top:10px;"></div>
-      <form id="chatForm" class="row" style="margin-top:10px;">
-        <input id="chatInput" type="text" placeholder="输入消息..." autocomplete="off">
+      <form id="chatForm" class="row" style="margin-top:10px;align-items:flex-end;">
+        <textarea id="chatInput" rows="2" placeholder="输入消息...（Enter 发送，Shift+Enter 换行）"></textarea>
         <button class="btn" type="submit">发送</button>
       </form>
     </section>
@@ -97,7 +99,8 @@
     function addChat(from, text, time){
       const line = document.createElement('div');
       line.style.marginBottom = '8px';
-      line.innerHTML = '<b>' + esc(from) + '</b> <span style="color:#6b7280;font-size:12px;">' + esc(time) + '</span><div>' + esc(text) + '</div>';
+      line.className = 'msg-body';
+      line.textContent = text;
       chat.appendChild(line);
       chat.scrollTop = chat.scrollHeight;
     }
@@ -187,6 +190,16 @@
       }
       ws.send(JSON.stringify({ type: 'text', content: text }));
       chatInput.value = '';
+    });
+
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      if (typeof chatForm.requestSubmit === 'function') {
+        chatForm.requestSubmit();
+      } else {
+        chatForm.dispatchEvent(new Event('submit', { cancelable: true }));
+      }
     });
 
     uploadForm.addEventListener('submit', async (e) => {
